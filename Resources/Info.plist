@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleExecutable</key><string>WindowHop</string>
+<key>CFBundleIdentifier</key><string>local.windowhop.app</string>
+<key>CFBundleName</key><string>WindowHop</string>
+<key>CFBundleDisplayName</key><string>WindowHop</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>1.3.0</string>
+<key>CFBundleVersion</key><string>6</string>
+<key>LSMinimumSystemVersion</key><string>14.0</string>
+<key>LSUIElement</key><true/>
+<key>NSHighResolutionCapable</key><true/>
+<key>NSScreenCaptureUsageDescription</key><string>WindowHop показывает миниатюры ваших окон. Изображения остаются в оперативной памяти этого Mac.</string>
+</dict></plist>
