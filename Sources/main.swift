@@ -8,6 +8,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let preferences = PreferencesState()
     let catalog = WindowCatalog()
     let keyboard = KeyboardHook()
+    let mediaKeys = MediaKeyHook()
+    let mediaIndicator = MediaIndicator()
     var statusItem: NSStatusItem?
     var settingsWindow: NSWindow?
     var panel: SwitcherPanel?
@@ -21,6 +23,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if !others.isEmpty { NSApp.terminate(nil); return }
         NSApp.setActivationPolicy(.accessory)
         preferences.iconChanged = { [weak self] in self?.updateMenu() }
+        preferences.indicatorChanged = { [weak self] in
+            self?.mediaIndicator.dismiss()
+            self?.refreshMediaHook()
+        }
+        preferences.previewIndicator = { [weak self] control in self?.previewIndicator(control) }
+        mediaKeys.adjust = { [weak self] key, fine in self?.adjustMedia(key, fine: fine) ?? false }
         state.choose = { [weak self] index in self?.state.selection = index; self?.commit() }
         state.imageProvider = { [weak self] id in self?.catalog.cached(id) }
         state.visibilityChanged = { [weak self] in self?.updatePreviewTargets() }
@@ -71,6 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         preferences.login = SMAppService.mainApp.status == .enabled
         guard !suspended else { return }
         if preferences.accessibility { keyboard.start() } else { keyboard.stop() }
+        refreshMediaHook()
         if preferences.accessibility && preferences.recording {
             catalog.start()
         } else {
@@ -84,7 +93,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func suspend() {
         suspended = true
         keyboard.stop()
+        mediaKeys.stop()
+        mediaIndicator.dismiss()
         dismiss()
+    }
+
+    private func refreshMediaHook() {
+        if !suspended && preferences.accessibility && MediaControl.allCases.contains(where: { preferences.indicatorStyle(for: $0) != .system }) {
+            mediaKeys.start()
+        } else {
+            mediaKeys.stop()
+        }
+        if preferences.mediaKeysAvailable != mediaKeys.running {
+            preferences.mediaKeysAvailable = mediaKeys.running
+        }
+    }
+
+    private func adjustMedia(_ key: MediaKey, fine: Bool) -> Bool {
+        let style = preferences.indicatorStyle(for: key.control)
+        guard style != .system, let screen = MediaIndicator.activeScreen else { return false }
+        let level: MediaLevel?
+        switch key.control {
+        case .volume: level = OutputVolume()?.adjust(key, fine: fine)
+        case .brightness: level = DisplayBrightness(screen: screen)?.adjust(key, fine: fine)
+        }
+        guard let level else { return false }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.suspended, self.preferences.indicatorStyle(for: key.control) == style else { return }
+            self.mediaIndicator.show(key.control, style: style, level: level, on: screen)
+        }
+        return true
+    }
+
+    private func previewIndicator(_ control: MediaControl) {
+        guard let screen = settingsWindow?.screen ?? MediaIndicator.activeScreen else { return }
+        let level: MediaLevel?
+        switch control {
+        case .volume: level = OutputVolume()?.level
+        case .brightness: level = DisplayBrightness(screen: screen)?.level.map { MediaLevel(value: $0) }
+        }
+        mediaIndicator.show(control, style: preferences.indicatorStyle(for: control),
+            level: level ?? MediaLevel(value: 0.625), on: screen)
     }
 
     @objc func resume() {
@@ -132,7 +181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func showSettings() {
         if settingsWindow == nil {
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 540, height: 740), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 630), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
             window.title = "WindowHop — настройки"
             window.contentView = NSHostingView(rootView: PreferencesView(state: preferences))
             window.isReleasedWhenClosed = false

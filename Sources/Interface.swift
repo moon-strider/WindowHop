@@ -147,17 +147,40 @@ struct WindowCard: View {
 }
 
 final class PreferencesState: ObservableObject {
+    enum Page: Hashable {
+        case general, indicators
+    }
+
+    @Published var page: Page = .general
     @Published var accessibility = false
     @Published var recording = false
     @Published var keyboard = false
+    @Published var mediaKeysAvailable = false
     @Published var currentLayout = ""
     @Published var layoutCount = 0
     @Published var layoutSwitching = UserDefaults.standard.object(forKey: "layoutSwitching") as? Bool ?? true
     @Published var login = false
     @Published var error: String?
     @Published var menuIcon = UserDefaults.standard.object(forKey: "menuIcon") as? Bool ?? true
+    @Published private var indicatorStyles: [MediaControl: IndicatorStyle] = Dictionary(uniqueKeysWithValues:
+        MediaControl.allCases.map { control in
+            let saved = UserDefaults.standard.string(forKey: control.preferenceKey)
+            return (control, saved.flatMap(IndicatorStyle.init(rawValue:)) ?? .system)
+        }
+    )
     var iconChanged: () -> Void = {}
-    var refresh: () -> Void = {}
+    var indicatorChanged: () -> Void = {}
+    var previewIndicator: (MediaControl) -> Void = { _ in }
+
+    func indicatorStyle(for control: MediaControl) -> IndicatorStyle {
+        indicatorStyles[control] ?? .system
+    }
+
+    func setIndicatorStyle(_ style: IndicatorStyle, for control: MediaControl) {
+        indicatorStyles[control] = style
+        UserDefaults.standard.set(style.rawValue, forKey: control.preferenceKey)
+        indicatorChanged()
+    }
 
     func setLayoutSwitching(_ enabled: Bool) {
         layoutSwitching = enabled
@@ -185,8 +208,39 @@ final class PreferencesState: ObservableObject {
 
 struct PreferencesView: View {
     @ObservedObject var state: PreferencesState
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
+        VStack(spacing: 0) {
+            Picker("Раздел настроек", selection: $state.page) {
+                Text("Основные").tag(PreferencesState.Page.general)
+                Text("Индикаторы").tag(PreferencesState.Page.indicators)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            .padding(16)
+            Divider()
+            ScrollView {
+                Group {
+                    switch state.page {
+                    case .general: general
+                    case .indicators: indicators
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(24)
+            }
+            Divider()
+            HStack {
+                Spacer()
+                Button("Выйти из WindowHop") { NSApp.terminate(nil) }
+            }
+            .padding(12)
+        }
+    }
+
+    private var general: some View {
+        VStack(alignment: .leading, spacing: 20) {
             HStack(spacing: 14) {
                 Image(systemName: "rectangle.on.rectangle").font(.system(size: 35)).foregroundStyle(.mint)
                 VStack(alignment: .leading, spacing: 4) {
@@ -234,15 +288,47 @@ struct PreferencesView: View {
                     .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             if let error = state.error { Text(error).font(.system(size: 12)).foregroundStyle(.orange) }
-            Spacer(minLength: 0)
-            HStack {
-                Text("Локально. Без рекламы и сетевых запросов.").font(.system(size: 11)).foregroundStyle(.secondary)
-                Spacer()
-                Button("Выйти") { NSApp.terminate(nil) }
+        }
+    }
+
+    private var indicators: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            ForEach(MediaControl.allCases) { control in
+                GroupBox {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Picker("Стиль индикатора «\(control.title)»", selection: Binding(
+                            get: { state.indicatorStyle(for: control) },
+                            set: { state.setIndicatorStyle($0, for: control) }
+                        )) {
+                            ForEach(IndicatorStyle.allCases) { style in Text(style.title).tag(style) }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        HStack {
+                            Text(state.indicatorStyle(for: control).detail)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Предпросмотр") { state.previewIndicator(control) }
+                                .disabled(state.indicatorStyle(for: control) == .system)
+                        }
+                    }
+                    .padding(8)
+                } label: {
+                    Label(control.title, systemImage: control.icon(level: 0.9))
+                }
+            }
+            if !state.accessibility {
+                Label("Для замены системных индикаторов включите «Универсальный доступ» в разделе «Основные».",
+                    systemImage: "accessibility")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else if !state.mediaKeysAvailable && MediaControl.allCases.contains(where: { state.indicatorStyle(for: $0) != .system }) {
+                Label("Мультимедийные клавиши сейчас обрабатывает macOS.", systemImage: "keyboard")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
             }
         }
-        .padding(28)
-        .frame(width: 540, height: 740)
     }
 
     func permission(_ title: String, detail: String, granted: Bool, action: @escaping () -> Void) -> some View {
